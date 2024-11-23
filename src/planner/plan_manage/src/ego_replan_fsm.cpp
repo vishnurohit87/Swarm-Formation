@@ -448,6 +448,10 @@ namespace ego_planner
     odom_orient_.y() = msg->pose.pose.orientation.y;
     odom_orient_.z() = msg->pose.pose.orientation.z;
 
+    visualization_->pub_fov_visual(odom_pos_, odom_orient_, planner_manager_->pp_.drone_id);
+    // ROS Debug Statement
+    ROS_INFO_THROTTLE(1.0, "Publishing FOV visualization for drone %d", planner_manager_->pp_.drone_id);
+    
     have_odom_ = true;
   }
 

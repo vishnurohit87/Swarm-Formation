@@ -111,6 +111,15 @@ Visualization Manager:
       Topic: /theta_star_node/output
       Unreliable: false
       Value: true
+    - Class: rviz/MarkerArray
+      Name: FOV Visualization
+      Topic: /fov_visual
+      Enabled: true
+      Alpha: 1.0
+      Color: 255; 0; 0
+      Namespace: fov
+      Queue Size: 10
+      Marker Topic: /fov_visual    
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:

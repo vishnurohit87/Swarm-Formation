@@ -1,4 +1,6 @@
 #include <traj_utils/planning_visualization.h>
+#include <tf/transform_datatypes.h>
+#include <Eigen/Geometry>
 
 using std::cout;
 using std::endl;
@@ -27,14 +29,35 @@ namespace ego_planner
 
     swarm_formation_visual_pub  = nh.advertise<visualization_msgs::MarkerArray>("swarm_graph_visual", 10);
     
+    // Initialize FOV visualization parameters
+    nh.param("fov/max_dis", max_dis_, 4.0);
+    nh.param("fov/x_max_dis_gain", x_max_dis_gain_, 0.64);
+    nh.param("fov/y_max_dis_gain", y_max_dis_gain_, 0.82);
+
+    // Initialize FOV publisher
+    std::string topic_name = "/drone_" + std::to_string(drone_id) + "/fov_visual";
+    fov_pub_ = node.advertise<visualization_msgs::MarkerArray>(topic_name, 10);
+    ROS_INFO("=========================================FOV publisher initialized.======================================");
+
     t_init = ros::Time::now();
-    
+
     nh.param("manager/drone_id", drone_id_, -1);
     nh.param("optimization/formation_type", formation_type_, -1);
+
     initSwarmGraphVisual();
     swarm_odom.resize(formation_size_);
     for (int i=0; i<formation_size_; i++)
       swarm_odom[i] = Eigen::Vector3d::Zero();
+
+    // Resize FOV markers lists
+    markerNode_fov_list_.resize(formation_size_);
+    markerEdge_fov_list_.resize(formation_size_);
+
+    // Initialize FOV visualization for each drone
+    for (int i = 0; i < formation_size_; ++i)
+    {
+      fov_visual_init("world", i);
+    }
     
     drone_0_odom_sub_ = nh.subscribe("/drone_0_visual_slam/odom", 1, &PlanningVisualization::drone_0_odomeCallback, this);
     drone_1_odom_sub_ = nh.subscribe("/drone_1_visual_slam/odom", 1, &PlanningVisualization::drone_1_odomeCallback, this);
@@ -55,6 +78,99 @@ namespace ego_planner
     }
   }
   
+  void PlanningVisualization::fov_visual_init(const std::string& msg_frame_id, int drone_id)
+  {
+    double x_max_dis = max_dis_ * x_max_dis_gain_;
+    double y_max_dis = max_dis_ * y_max_dis_gain_;
+
+    fov_node_.resize(5);
+    fov_node_[0] = Eigen::Vector3d(0, 0, 0);
+    fov_node_[1] = Eigen::Vector3d(max_dis_, y_max_dis, x_max_dis);
+    fov_node_[2] = Eigen::Vector3d(max_dis_, -y_max_dis, x_max_dis);
+    fov_node_[3] = Eigen::Vector3d(max_dis_, -y_max_dis, -x_max_dis);
+    fov_node_[4] = Eigen::Vector3d(max_dis_, y_max_dis, -x_max_dis);
+
+    visualization_msgs::Marker markerNode_fov;
+    markerNode_fov.header.frame_id = msg_frame_id;
+    markerNode_fov.ns = "fov_nodes_" + std::to_string(drone_id);
+    markerNode_fov.type = visualization_msgs::Marker::SPHERE_LIST;
+    markerNode_fov.action = visualization_msgs::Marker::ADD;
+    markerNode_fov.pose.orientation.w = 1.0;
+    markerNode_fov.scale.x = 0.05;
+    markerNode_fov.scale.y = 0.05;
+    markerNode_fov.scale.z = 0.05;
+    markerNode_fov.color.r = 0;
+    markerNode_fov.color.g = 0.8;
+    markerNode_fov.color.b = 1;
+    markerNode_fov.color.a = 1;
+
+    visualization_msgs::Marker markerEdge_fov;
+    markerEdge_fov.header.frame_id = msg_frame_id;
+    markerEdge_fov.ns = "fov_edges_" + std::to_string(drone_id);
+    markerEdge_fov.type = visualization_msgs::Marker::LINE_LIST;
+    markerEdge_fov.action = visualization_msgs::Marker::ADD;
+    markerEdge_fov.pose.orientation.w = 1.0;
+    markerEdge_fov.scale.x = 0.05;
+    markerEdge_fov.color.r = 0.5f;
+    markerEdge_fov.color.g = 0.0;
+    markerEdge_fov.color.b = 0.0;
+    markerEdge_fov.color.a = 1;
+
+    markerNode_fov.id = drone_id * 2;
+    markerEdge_fov.id = drone_id * 2 + 1;
+
+    markerNode_fov_list_[drone_id] = markerNode_fov;
+    markerEdge_fov_list_[drone_id] = markerEdge_fov;
+  }
+
+  void PlanningVisualization::pub_fov_visual(const Eigen::Vector3d& p, const Eigen::Quaterniond& q, int drone_id)
+  {
+    visualization_msgs::MarkerArray markerArray_fov;
+    visualization_msgs::Marker& markerNode_fov = markerNode_fov_list_[drone_id];
+    visualization_msgs::Marker& markerEdge_fov = markerEdge_fov_list_[drone_id];
+
+    markerNode_fov.header.frame_id = "world";  // Ensure this matches TF frames
+    markerEdge_fov.header.frame_id = "world";  // Ensure this matches TF frames
+    markerNode_fov.header.stamp = ros::Time::now();
+    markerEdge_fov.header.stamp = ros::Time::now();
+
+    markerNode_fov.points.clear();
+    markerEdge_fov.points.clear();
+
+    std::vector<geometry_msgs::Point> fov_node_marker;
+    for (int i = 0; i < fov_node_.size(); ++i)
+    {
+      Eigen::Vector3d vector_temp = q * fov_node_[i] + p;
+      geometry_msgs::Point point_temp;
+      point_temp.x = vector_temp.x();
+      point_temp.y = vector_temp.y();
+      point_temp.z = vector_temp.z();
+      fov_node_marker.push_back(point_temp);
+    }
+
+    for (const auto& pt : fov_node_marker)
+    {
+      markerNode_fov.points.push_back(pt);
+    }
+
+    // Define the edges of the FOV pyramid
+    std::vector<std::pair<int, int>> edges = {
+        {0, 1}, {0, 2}, {0, 3}, {0, 4},
+        {1, 2}, {2, 3}, {3, 4}, {4, 1}
+    };
+
+    for (const auto& edge : edges)
+    {
+      markerEdge_fov.points.push_back(fov_node_marker[edge.first]);
+      markerEdge_fov.points.push_back(fov_node_marker[edge.second]);
+    }
+
+    markerArray_fov.markers.push_back(markerNode_fov);
+    markerArray_fov.markers.push_back(markerEdge_fov);
+
+    fov_pub_.publish(markerArray_fov);
+  }
+
   void PlanningVisualization::swarmGraphVisulCallback(const ros::TimerEvent &e){
     if (line_size_==0)
       return;
@@ -107,11 +223,23 @@ namespace ego_planner
        odom_csv << std::endl;
   }
 
-  void PlanningVisualization::drone_0_odomeCallback(const nav_msgs::OdometryConstPtr &msg){
+  void PlanningVisualization::drone_0_odomeCallback(const nav_msgs::OdometryConstPtr &msg)
+  {
     if (formation_size_ <=0 )
       return;
-    
+
     swarm_odom[0] << msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z;
+
+    Eigen::Vector3d position = swarm_odom[0];
+    Eigen::Quaterniond orientation(
+        msg->pose.pose.orientation.w,
+        msg->pose.pose.orientation.x,
+        msg->pose.pose.orientation.y,
+        msg->pose.pose.orientation.z
+    );
+
+    // Publish FOV visualization for drone 0
+    pub_fov_visual(position, orientation, 0);
   }
 
   void PlanningVisualization::drone_1_odomeCallback(const nav_msgs::OdometryConstPtr &msg){

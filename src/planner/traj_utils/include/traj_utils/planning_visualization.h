@@ -11,8 +11,11 @@
 #include <stdlib.h>
 #include <nav_msgs/Odometry.h>
 #include <fstream>
+#include <tf/transform_broadcaster.h>
+#include <Eigen/Geometry> // For Eigen::Quaterniond
 
 using std::vector;
+
 namespace ego_planner
 {
   class PlanningVisualization
@@ -20,6 +23,7 @@ namespace ego_planner
   private:
     ros::NodeHandle node;
 
+    // Existing publishers
     ros::Publisher goal_point_pub;
     ros::Publisher global_list_pub;
     ros::Publisher init_list_pub;
@@ -40,6 +44,19 @@ namespace ego_planner
 
     ros::Publisher swarm_formation_visual_pub;
 
+    // FOV visualization publisher
+    ros::Publisher fov_pub_;
+
+    // FOV visualization variables
+    double max_dis_;
+    double x_max_dis_gain_;
+    double y_max_dis_gain_;
+    std::vector<Eigen::Vector3d> fov_node_;
+
+    // For each drone, store its FOV markers
+    std::vector<visualization_msgs::Marker> markerNode_fov_list_;
+    std::vector<visualization_msgs::Marker> markerEdge_fov_list_;
+
     enum FORMATION_TYPE
     {
       NONE_FORMATION        = 0,
@@ -56,6 +73,7 @@ namespace ego_planner
     ros::Subscriber drone_4_odom_sub_, drone_5_odom_sub_, drone_6_odom_sub_, drone_7_odom_sub_;
     ros::Subscriber drone_8_odom_sub_, drone_9_odom_sub_, drone_10_odom_sub_, drone_11_odom_sub_;
 
+    // Timers
     ros::Timer swarm_graph_visual_timer_;
     ros::Timer benchmark_recorder;
 
@@ -64,6 +82,10 @@ namespace ego_planner
     ros::Time t_record;
 
     std::vector<Eigen::Vector3d> swarm_odom;
+
+    // FOV visualization functions
+    void fov_visual_init(const std::string& msg_frame_id, int drone_id);
+    void pub_fov_visual(const Eigen::Vector3d& p, const Eigen::Quaterniond& q, int drone_id);
 
     void drone_0_odomeCallback(const nav_msgs::OdometryConstPtr &msg);
     void drone_1_odomeCallback(const nav_msgs::OdometryConstPtr &msg);
@@ -77,22 +99,24 @@ namespace ego_planner
     void drone_9_odomeCallback(const nav_msgs::OdometryConstPtr &msg);
     void drone_10_odomeCallback(const nav_msgs::OdometryConstPtr &msg);
     void drone_11_odomeCallback(const nav_msgs::OdometryConstPtr &msg);
-    
+
     void swarmGraphVisulCallback(const ros::TimerEvent &e);
     void benchmarkCallback(const ros::TimerEvent &e);
 
   public:
 
-    PlanningVisualization(/* args */) {}
+    PlanningVisualization() {}
     ~PlanningVisualization() { 
       if (drone_id_ == 1){ odom_csv.close(); }
-     }
+    }
 
     PlanningVisualization(ros::NodeHandle &nh);
 
     typedef std::shared_ptr<PlanningVisualization> Ptr;
 
     void initSwarmGraphVisual();
+
+    // Existing public functions...
 
     void displayMarkerList(ros::Publisher &pub, const vector<Eigen::Vector3d> &list, double scale,
                            Eigen::Vector4d color, int id,  bool show_sphere = true);
